@@ -1,4 +1,7 @@
 const express = require('express');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const { Alchemy, Network } = require("alchemy-sdk");
 
 const app = express();
@@ -15,11 +18,11 @@ const alchemy = new Alchemy(config);
 const cache = {}
 
 // API key for verification (in a real-world scenario, store this securely)
-const API_KEY = 'eQOMEXH=)("§qhß098cedsjq0ßjd10ß"J=';
+const API_KEY = 'fibmprmjbkguugwflhqxtluenxqxrwtl';
 
 // Middleware for API key verification
 const verifyApiKey = (req, res, next) => {
-  const apiKey = req.header('X-API-KEY');
+  const apiKey = req.header('X-API-Key');
   if (!apiKey || apiKey !== API_KEY) {
     return res.status(401).json({ error: 'Unauthorized: Invalid API Key' });
   }
@@ -65,7 +68,6 @@ app.post('/nfts', verifyApiKey, async (req, res) => {
       const collectionResponse = await alchemy.nft.getNftsForContract(collectionAddress, collectionOpts);
       let isInCollection = collectionResponse.nfts[0].tokenId.toLowerCase() === tokenId.toLowerCase();
 
-      // can be cached, as if TokenId was changed or NFT deleted, the wallet wouldnt have it either
       cacheTokenId(collectionAddress, tokenId, isInCollection);
 
       if (isInCollection) {
@@ -88,6 +90,13 @@ function cacheTokenId(collectionAddress, tokenId, result) {
   cache[collectionAddress][tokenId] = result;
 }
 
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+// HTTPS server configuration
+const httpsOptions = {
+  key: fs.readFileSync(path.join(__dirname, 'certs', 'key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'certs', 'cert.pem'))
+};
+
+// Create HTTPS server
+https.createServer(httpsOptions, app).listen(port, '0.0.0.0', () => {
+  console.log(`HTTPS Server running at https://0.0.0.0:${port}`);
 });
