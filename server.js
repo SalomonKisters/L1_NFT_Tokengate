@@ -14,7 +14,19 @@ const config = {
 const alchemy = new Alchemy(config);
 const cache = {}
 
-app.post('/nfts', async (req, res) => {
+// API key for verification (in a real-world scenario, store this securely)
+const API_KEY = 'eQOMEXH=)("§qhß098cedsjq0ßjd10ß"J=';
+
+// Middleware for API key verification
+const verifyApiKey = (req, res, next) => {
+  const apiKey = req.header('X-API-KEY');
+  if (!apiKey || apiKey !== API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid API Key' });
+  }
+  next();
+};
+
+app.post('/nfts', verifyApiKey, async (req, res) => {
   try {
     const { walletAddress, collectionAddress } = req.body;
 
@@ -30,7 +42,7 @@ app.post('/nfts', async (req, res) => {
 
     let matchingTokenIds = [];
     for await (const nft of alchemy.nft.getNftsForOwnerIterator(walletAddress, walletOpts)) {
-      if (nft.contractAddress == collectionAddress) {
+      if (nft.contractAddress.toLowerCase() === collectionAddress.toLowerCase()) {
         matchingTokenIds.push(nft.tokenId);
       }
     }
@@ -41,7 +53,7 @@ app.post('/nfts', async (req, res) => {
 
     for (let tokenId of matchingTokenIds) {
       if (cache[collectionAddress] && cache[collectionAddress][tokenId] === true) {
-        return res.json( true );
+        return res.json(true);
       }
 
       const collectionOpts = {
@@ -51,10 +63,10 @@ app.post('/nfts', async (req, res) => {
       };
 
       const collectionResponse = await alchemy.nft.getNftsForContract(collectionAddress, collectionOpts);
-      let isInCollection = collectionResponse.nfts[0].tokenId.toLowerCase() == tokenId.toLowerCase()
+      let isInCollection = collectionResponse.nfts[0].tokenId.toLowerCase() === tokenId.toLowerCase();
 
       // can be cached, as if TokenId was changed or NFT deleted, the wallet wouldnt have it either
-      cacheTokenId(collectionAddress, tokenId, isInCollection)
+      cacheTokenId(collectionAddress, tokenId, isInCollection);
 
       if (isInCollection) {
         return res.json(true);
