@@ -2,25 +2,49 @@ const express = require('express');
 const { Alchemy, Network } = require("alchemy-sdk");
 
 const app = express();
-const port = 3000; // You can change this to any port you prefer
+const port = 3000;
+
+// Middleware to parse JSON bodies
+app.use(express.json());
 
 const config = {
-  apiKey: "<-- ALCHEMY APP API KEY -->",
+  apiKey: "qYe311uJNVM9iiEwzK0D9JsvUN_mgb92",
   network: Network.ETH_MAINNET,
 };
 
 const alchemy = new Alchemy(config);
 
-app.get('/nft-owner', async (req, res) => {
+app.post('/nfts', async (req, res) => {
   try {
-    const address = "0xDd69da9a83ceDc730bc4d3C56E96D29Acc05eCDE";
-    const tokenId = 4254;
+    const { walletAddress, collectionAddress } = req.body;
 
-    const owner = await alchemy.nft.getOwnersForNft(address, tokenId);
-    res.json(owner);
+    if (!walletAddress || !collectionAddress) {
+      return res.status(400).json({ error: 'Both wallet address and collection address are required' });
+    }
+
+    // Get all NFTs for the collection
+    let collection_nft_ids = [];
+    const response = await alchemy.nft.getNftsForContract(collectionAddress);
+    for (let nft of response.nfts) {
+      collection_nft_ids.push(nft.tokenId);
+    }
+
+    // Get all NFTs for the wallet
+    const wallet_nfts = await alchemy.nft.getNftsForOwner(walletAddress);
+
+    let wallet_has_collection = false;
+    for (let nft of wallet_nfts.ownedNfts) {
+      if (nft.contract.address.toLowerCase() === collectionAddress.toLowerCase() && 
+          collection_nft_ids.includes(nft.tokenId)) {
+        wallet_has_collection = true;
+        break;
+      }
+    }
+
+    res.json({ "result": wallet_has_collection });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'An error occurred while fetching the NFT owner' });
+    res.status(500).json({ error: 'An error occurred while fetching the NFTs' });
   }
 });
 
