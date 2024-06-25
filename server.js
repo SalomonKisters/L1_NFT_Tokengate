@@ -12,6 +12,7 @@ const config = {
 };
 
 const alchemy = new Alchemy(config);
+const cache = {}
 
 app.post('/nfts', async (req, res) => {
   try {
@@ -34,12 +35,15 @@ app.post('/nfts', async (req, res) => {
       }
     }
 
-    if (matchingTokenIds.length == 0){ 
-      res.json( false )
-    };
-    
+    if (matchingTokenIds.length == 0) {
+      return res.json(false);
+    }
 
     for (let tokenId of matchingTokenIds) {
+      if (cache[collectionAddress] && cache[collectionAddress][tokenId] === true) {
+        return res.json( true );
+      }
+
       const collectionOpts = {
         omitMetadata: true,
         pageSize: 1,
@@ -47,19 +51,30 @@ app.post('/nfts', async (req, res) => {
       };
 
       const collectionResponse = await alchemy.nft.getNftsForContract(collectionAddress, collectionOpts);
+      let isInCollection = collectionResponse.nfts[0].tokenId.toLowerCase() == tokenId.toLowerCase()
 
-      if (collectionResponse.nfts[0].tokenId == tokenId){ 
-        res.json( true )
-      };
+      // can be cached, as if TokenId was changed or NFT deleted, the wallet wouldnt have it either
+      cacheTokenId(collectionAddress, tokenId, isInCollection)
+
+      if (isInCollection) {
+        return res.json(true);
+      }
     }
 
-    res.json( false );
+    return res.json(false);
 
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'An error occurred while fetching the NFTs' });
   }
 });
+
+function cacheTokenId(collectionAddress, tokenId, result) {
+  if (!cache[collectionAddress]) {
+    cache[collectionAddress] = {};
+  }
+  cache[collectionAddress][tokenId] = result;
+}
 
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
