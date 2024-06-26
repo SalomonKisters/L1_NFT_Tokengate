@@ -3,11 +3,19 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { Alchemy, Network } = require("alchemy-sdk");
+const cors = require('cors'); 
 
 const app = express();
 const port = 3000;
 
+app.use(cors());
 app.use(express.json());
+
+// Middleware to log incoming requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
 const config = {
   apiKey: "qYe311uJNVM9iiEwzK0D9JsvUN_mgb92",
@@ -15,10 +23,12 @@ const config = {
 };
 
 const alchemy = new Alchemy(config);
-const cache = {}
+const cacheFilePath = path.join(__dirname, 'cache.json');
 
 // API key for verification (in a real-world scenario, store this securely)
 const API_KEY = 'fibmprmjbkguugwflhqxtluenxqxrwtl';
+
+
 
 // Middleware for API key verification
 const verifyApiKey = (req, res, next) => {
@@ -28,6 +38,35 @@ const verifyApiKey = (req, res, next) => {
   }
   next();
 };
+
+// Load cache from file
+function loadCache() {
+  try {
+    const data = fs.readFileSync(cacheFilePath, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error loading cache:', error);
+    return { collections: {}, excluded: {} };
+  }
+}
+
+// Save cache to file
+function saveCache(cache) {
+  try {
+    fs.writeFileSync(cacheFilePath, JSON.stringify(cache, null, 2));
+  } catch (error) {
+    console.error('Error saving cache:', error);
+  }
+}
+
+
+function cacheTokenId(cache, collectionAddress, tokenId, result) {
+  if (!cache.collections[collectionAddress]) {
+    cache.collections[collectionAddress] = {};
+  }
+  cache.collections[collectionAddress][tokenId] = result;
+}
+
 
 app.post('/nfts', verifyApiKey, async (req, res) => {
   try {
@@ -51,12 +90,29 @@ app.post('/nfts', verifyApiKey, async (req, res) => {
     }
 
     if (matchingTokenIds.length == 0) {
-      return res.json(false);
+      return res.json(
+        {
+          "success": false,
+          "message": "You do not own an NFT from the collection."
+        });
     }
 
+    const cache = loadCache();
+
+    let failMessage = ""
     for (let tokenId of matchingTokenIds) {
-      if (cache[collectionAddress] && cache[collectionAddress][tokenId] === true) {
-        return res.json(true);
+      // Check if the token is in the excluded list
+      if (cache.excluded[collectionAddress] && cache.excluded[collectionAddress].includes(tokenId)) {
+        failMessage = "Your NFT was already used to claim the product."
+        continue; // Skip this token and check the next one
+      }
+
+      if (cache.collections[collectionAddress] && cache.collections[collectionAddress][tokenId] === true) {
+        return res.json(
+          {
+            "success": true,
+            "message": "Authentication Successful."
+          });
       }
 
       const collectionOpts = {
@@ -68,14 +124,23 @@ app.post('/nfts', verifyApiKey, async (req, res) => {
       const collectionResponse = await alchemy.nft.getNftsForContract(collectionAddress, collectionOpts);
       let isInCollection = collectionResponse.nfts[0].tokenId.toLowerCase() === tokenId.toLowerCase();
 
-      cacheTokenId(collectionAddress, tokenId, isInCollection);
+      cacheTokenId(cache, collectionAddress, tokenId, isInCollection);
+      saveCache(cache);
 
       if (isInCollection) {
-        return res.json(true);
+        return res.json(
+          {
+            "success": false,
+            "message": failMessage
+          });
       }
     }
 
-    return res.json(false);
+    return res.json(
+    {
+      "success": false,
+      "message": failMessage
+    });
 
   } catch (error) {
     console.error(error);
@@ -83,12 +148,28 @@ app.post('/nfts', verifyApiKey, async (req, res) => {
   }
 });
 
-function cacheTokenId(collectionAddress, tokenId, result) {
-  if (!cache[collectionAddress]) {
-    cache[collectionAddress] = {};
+// New endpoint to add excluded NFTs
+app.post('/exclude', verifyApiKey, (req, res) => {
+  const { collectionAddress, tokenIds } = req.body;
+
+  if (!collectionAddress || !Array.isArray(tokenIds)) {
+    return res.status(400).json({ error: 'Collection address and an array of token IDs are required' });
   }
-  cache[collectionAddress][tokenId] = result;
-}
+
+  const cache = loadCache();
+
+  if (!cache.excluded[collectionAddress]) {
+    cache.excluded[collectionAddress] = [];
+  }
+
+  cache.excluded[collectionAddress] = [...new Set([...cache.excluded[collectionAddress], ...tokenIds])];
+
+  saveCache(cache);
+
+  res.json({ message: 'Exclusion list updated successfully.' });
+});
+
+
 
 // HTTPS server configuration
 const httpsOptions = {
