@@ -14,6 +14,7 @@ app.use(express.json());
 // Middleware to log incoming requests
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log(req.body);
   next();
 });
 
@@ -90,29 +91,26 @@ app.post('/nfts', verifyApiKey, async (req, res) => {
     }
 
     if (matchingTokenIds.length == 0) {
-      return res.json(
-        {
-          "success": false,
-          "message": "You do not own an NFT from the collection."
-        });
+      return res.json({
+        "success": false,
+        "message": "You do not own an NFT from the collection."
+      });
     }
 
     const cache = loadCache();
 
-    let failMessage = ""
+    let validNftTokens = [];
+    let failMessage = "";
+    
     for (let tokenId of matchingTokenIds) {
-      // Check if the token is in the excluded list
       if (cache.excluded[collectionAddress] && cache.excluded[collectionAddress].includes(tokenId)) {
-        failMessage = "Your NFT was already used to claim the product."
-        continue; // Skip this token and check the next one
+        failMessage = "Some of your NFTs were already used to claim the product.";
+        continue;
       }
 
       if (cache.collections[collectionAddress] && cache.collections[collectionAddress][tokenId] === true) {
-        return res.json(
-          {
-            "success": true,
-            "message": "Authentication Successful."
-          });
+        validNftTokens.push(tokenId);
+        continue;
       }
 
       const collectionOpts = {
@@ -125,28 +123,34 @@ app.post('/nfts', verifyApiKey, async (req, res) => {
       let isInCollection = collectionResponse.nfts[0].tokenId.toLowerCase() === tokenId.toLowerCase();
 
       cacheTokenId(cache, collectionAddress, tokenId, isInCollection);
-      saveCache(cache);
 
       if (isInCollection) {
-        return res.json(
-          {
-            "success": false,
-            "message": failMessage
-          });
+        validNftTokens.push(tokenId);
       }
     }
 
-    return res.json(
-    {
-      "success": false,
-      "message": failMessage
-    });
+    saveCache(cache);
+
+    if (validNftTokens.length > 0) {
+      return res.json({
+        "success": true,
+        "message": "Authentication Successful.",
+        "selection": validNftTokens
+      });
+    } else {
+      return res.json({
+        "success": false,
+        "message": failMessage || "No valid NFTs found in the collection.",
+        "selection": []
+      });
+    }
 
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'An error occurred while fetching the NFTs' });
   }
 });
+
 
 // New endpoint to add excluded NFTs
 app.post('/exclude', verifyApiKey, (req, res) => {
@@ -162,7 +166,9 @@ app.post('/exclude', verifyApiKey, (req, res) => {
     cache.excluded[collectionAddress] = [];
   }
 
-  cache.excluded[collectionAddress] = [...new Set([...cache.excluded[collectionAddress], ...tokenIds])];
+  const stringTokenIds = tokenIds.map(id => id.toString());
+
+  cache.excluded[collectionAddress] = [...new Set([...cache.excluded[collectionAddress], ...stringTokenIds])];
 
   saveCache(cache);
 
