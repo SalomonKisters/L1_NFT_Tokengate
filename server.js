@@ -104,7 +104,7 @@ app.post('/nfts', verifyApiKey, async (req, res) => {
     
     for (let tokenId of matchingTokenIds) {
       if (cache.excluded[collectionAddress] && cache.excluded[collectionAddress].includes(tokenId)) {
-        failMessage = "Some of your NFTs were already used to claim the product.";
+        failMessage = "All of your NFTs were already used to claim the product.";
         continue;
       }
 
